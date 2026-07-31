@@ -1,6 +1,6 @@
 [package]
 name = "acton-ern"
-version = "3.0.0"
+version = "3.1.0"
 edition = "2024"
 authors = ["Roland Rodriguez <roland@govcraft.ai>"]
 description = "A Rust library for handling Entity Resource Names (ERNs), providing type-safe, hierarchical, and k-sortable resource identifiers for distributed systems and more."
