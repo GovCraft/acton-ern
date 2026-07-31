@@ -1,3 +1,6 @@
+use std::str::FromStr;
+
+use crate::errors::ErnError;
 use crate::{Account, Category, Domain, EntityRoot, Part, Parts};
 
 /// Represents a component of an Entity Resource Name (ERN).
@@ -21,6 +24,20 @@ pub trait ErnComponent {
     /// sequence of components. For example, `Domain::NextState` is `Category`,
     /// indicating that a `Category` should follow a `Domain` in an ERN.
     type NextState;
+
+    /// Builds the ERN root component this type contributes, if it can occupy the root slot.
+    ///
+    /// `ErnBuilder` dispatches on component *position*, which is not enough to tell the
+    /// root-capable components apart: `EntityRoot` and `SHA1Name` share the same prefix
+    /// and the same `NextState`. This method carries the identifier algorithm down to the
+    /// builder, so `with::<SHA1Name>(..)` really does produce a deterministic v5 root
+    /// instead of silently falling back to a time-ordered v7 one.
+    ///
+    /// Components that never occupy the root slot use the default implementation and
+    /// return `None`.
+    fn build_root(_value: &str) -> Option<Result<EntityRoot, ErnError>> {
+        None
+    }
 }
 
 macro_rules! impl_ern_component {
@@ -38,6 +55,10 @@ impl ErnComponent for EntityRoot {
         ""
     }
     type NextState = Part;
+
+    fn build_root(value: &str) -> Option<Result<EntityRoot, ErnError>> {
+        Some(EntityRoot::from_str(value))
+    }
 }
 
 impl ErnComponent for Account {

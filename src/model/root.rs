@@ -9,15 +9,35 @@ use crate::errors::ErnError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Interprets `value` as a root identifier.
+///
+/// A value that is already a fully-formed `MagicTypeId` (such as the
+/// `pool_01kytrwjv4eb1rt080sp4txr5t` found in an ERN's `Display` output) is preserved
+/// verbatim. Anything else is treated as a bare name and receives a freshly minted,
+/// time-ordered v7 suffix.
+///
+/// Preserving formed identifiers is what makes parsing idempotent: without it, every
+/// parse folds the previous suffix into the prefix and mints another one, so repeated
+/// parse cycles accumulate garbage and an ERN never round-trips through its own
+/// `Display` output.
+fn preserve_or_mint(value: &str) -> MagicTypeId {
+    value
+        .parse::<MagicTypeId>()
+        .unwrap_or_else(|_| value.create_type_id::<V7>())
+}
+
 /// Represents the root component in an Entity Resource Name (ERN).
 ///
 /// The root component is a unique identifier for the base resource in the ERN hierarchy.
 /// It uses the `mti` crate's `MagicTypeId` with UUID v7 algorithm to generate
 /// time-ordered, unique identifiers that enable k-sortability.
 ///
-/// When using `EntityRoot`, each call to create a new root with the same name will
+/// When using `EntityRoot`, each call to create a new root from a bare *name* will
 /// generate a different ID, as it incorporates the current timestamp. This makes
 /// `EntityRoot` suitable for resources that should be ordered by creation time.
+/// A value that is already a fully-formed identifier (for example one taken from an
+/// existing ERN) is preserved as-is rather than reissued, so ERNs round-trip through
+/// parsing and serialization unchanged.
 ///
 /// For content-addressable, deterministic IDs, use `SHA1Name` instead.
 #[derive(AsRef, From, Into, Eq, Debug, PartialEq, Clone, Hash, Default, PartialOrd)]
@@ -71,10 +91,13 @@ impl EntityRoot {
 
     /// Creates a new `EntityRoot` with the given value.
     ///
-    /// This method generates a time-ordered, unique identifier using the UUID v7 algorithm.
-    /// Each call to this method with the same input value will generate a different ID,
+    /// When `value` is a bare name, this method generates a time-ordered, unique identifier
+    /// using the UUID v7 algorithm. Each call with the same name will generate a different ID,
     /// as it incorporates the current timestamp. This makes `EntityRoot` suitable for
     /// resources that should be ordered by creation time.
+    ///
+    /// When `value` is already a fully-formed identifier, it is preserved verbatim so that
+    /// existing roots survive a parse or deserialization round trip.
     ///
     /// # Arguments
     ///
@@ -99,6 +122,10 @@ impl EntityRoot {
     ///
     /// // The ID will contain the original name followed by a timestamp-based suffix
     /// assert!(root.to_string().starts_with("profile_"));
+    ///
+    /// // Re-creating from a formed identifier preserves it
+    /// let same = EntityRoot::new(root.to_string())?;
+    /// assert_eq!(root, same);
     /// # Ok(())
     /// # }
     /// ```
@@ -123,7 +150,7 @@ impl EntityRoot {
         }
 
         Ok(EntityRoot {
-            name: value.create_type_id::<V7>(),
+            name: preserve_or_mint(&value),
         })
     }
 }
@@ -141,9 +168,10 @@ impl std::str::FromStr for EntityRoot {
 
     /// Creates an `EntityRoot` from a string.
     ///
-    /// This method generates a time-ordered, unique identifier using the UUID v7 algorithm.
-    /// Each call to this method with the same input string will generate a different ID,
-    /// as it incorporates the current timestamp.
+    /// A bare name receives a freshly minted, time-ordered v7 identifier, so each call with
+    /// the same name yields a different ID. A string that is already a fully-formed
+    /// identifier is preserved verbatim, which is what allows `ErnParser` to round-trip an
+    /// ERN's own `Display` output.
     ///
     /// # Arguments
     ///
@@ -171,7 +199,7 @@ impl std::str::FromStr for EntityRoot {
         }
 
         Ok(EntityRoot {
-            name: s.create_type_id::<V7>(),
+            name: preserve_or_mint(s),
         })
     }
 }
@@ -254,6 +282,42 @@ mod tests {
             }
             _ => panic!("Expected ParseFailure error for too long EntityRoot"),
         }
+    }
+
+    #[test]
+    fn test_entity_root_preserves_formed_identifier() -> anyhow::Result<()> {
+        // Re-reading a root's own string representation must reproduce it exactly,
+        // rather than folding the suffix into the prefix and minting a new one.
+        let root = EntityRoot::new("pool".to_string())?;
+        let reread = EntityRoot::from_str(root.as_str())?;
+
+        assert_eq!(root, reread);
+        assert_eq!(root.to_string(), reread.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_entity_root_parsing_is_idempotent() -> anyhow::Result<()> {
+        // Repeated round trips must converge, not accumulate prefix garbage.
+        let mut root = EntityRoot::new("pool".to_string())?;
+        let expected = root.to_string();
+
+        for _ in 0..5 {
+            root = EntityRoot::from_str(root.as_str())?;
+            assert_eq!(root.to_string(), expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_entity_root_bare_name_still_mints() -> anyhow::Result<()> {
+        // A name that merely contains an underscore is not a formed identifier.
+        let root1 = EntityRoot::from_str("root_a")?;
+        let root2 = EntityRoot::from_str("root_a")?;
+
+        assert_ne!(root1, root2);
+        assert!(root1.as_str().starts_with("root_a_"));
+        Ok(())
     }
 
     #[test]

@@ -102,8 +102,13 @@ impl<Component: ErnComponent + Hash + Clone + PartialEq + Eq> ErnBuilder<Compone
     where
         N: ErnComponent<NextState = Component::NextState> + Hash,
     {
+        let part = part.into();
+        // `N::build_root` carries the requested identifier algorithm down to the builder.
+        // Position alone cannot distinguish `EntityRoot` from `SHA1Name`: both share the
+        // empty prefix and both declare `NextState = Part`.
+        let root = N::build_root(&part);
         Ok(ErnBuilder {
-            builder: self.builder.add_part(N::prefix(), part.into())?,
+            builder: self.builder.add_part(N::prefix(), part, root)?,
             _marker: std::marker::PhantomData,
         })
     }
@@ -130,7 +135,17 @@ impl PrivateErnBuilder {
         }
     }
 
-    fn add_part(mut self, prefix: &'static str, part: String) -> Result<Self, ErnError> {
+    /// Adds a component to the builder.
+    ///
+    /// `root` carries the root the calling component would contribute, if it is one of the
+    /// root-capable components. It is only consulted in the root slot; components that
+    /// never occupy that slot pass `None`.
+    fn add_part(
+        mut self,
+        prefix: &'static str,
+        part: String,
+        root: Option<Result<EntityRoot, ErnError>>,
+    ) -> Result<Self, ErnError> {
         match prefix {
             p if p == Domain::prefix() => {
                 self.domain = Some(Domain::new(part)?);
@@ -141,7 +156,10 @@ impl PrivateErnBuilder {
                 } else if self.category.is_some() && self.account.is_none() {
                     self.account = Some(Account::new(part)?);
                 } else if self.account.is_some() && self.root.is_none() {
-                    self.root = Some(EntityRoot::from_str(part.as_str()).unwrap());
+                    self.root = Some(match root {
+                        Some(root) => root?,
+                        None => EntityRoot::from_str(part.as_str())?,
+                    });
                 } else {
                     // add the first part
                     self.parts = self.parts.add_part(Part::new(part)?)?;

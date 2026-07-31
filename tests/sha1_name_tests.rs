@@ -31,6 +31,65 @@ fn test_sha1name_in_ern() -> anyhow::Result<()> {
 }
 
 #[test]
+fn test_sha1name_root_is_deterministic_through_builder() -> anyhow::Result<()> {
+    // The type parameter must actually select the identifier algorithm. Building the same
+    // ERN twice with SHA1Name has to produce the same root, not two v7 roots.
+    let build = || -> Result<Ern, ErnError> {
+        ErnBuilder::new()
+            .with::<Domain>("acton-internal")?
+            .with::<Category>("hr")?
+            .with::<Account>("company123")?
+            .with::<SHA1Name>("worker")?
+            .with::<Part>("inbox")?
+            .build()
+    };
+
+    let left = build()?;
+    let right = build()?;
+
+    assert_eq!(left.root(), right.root());
+    assert_eq!(left, right);
+    assert_eq!(
+        left.root().as_str(),
+        SHA1Name::new("worker".to_string())?.as_str()
+    );
+    Ok(())
+}
+
+#[test]
+fn test_sha1name_root_survives_parsing() -> anyhow::Result<()> {
+    let ern = ErnBuilder::new()
+        .with::<Domain>("acton-internal")?
+        .with::<Category>("hr")?
+        .with::<Account>("company123")?
+        .with::<SHA1Name>("worker")?
+        .with::<Part>("inbox")?
+        .build()?;
+
+    let reparsed = ErnParser::new(ern.to_string()).parse()?;
+
+    assert_eq!(ern, reparsed);
+    Ok(())
+}
+
+#[test]
+fn test_entityroot_root_is_not_deterministic_through_builder() -> anyhow::Result<()> {
+    // The counterpart to the SHA1Name case: EntityRoot stays time-ordered and unique.
+    let build = || -> Result<Ern, ErnError> {
+        ErnBuilder::new()
+            .with::<Domain>("acton-internal")?
+            .with::<Category>("hr")?
+            .with::<Account>("company123")?
+            .with::<EntityRoot>("worker")?
+            .with::<Part>("inbox")?
+            .build()
+    };
+
+    assert_ne!(build()?.root(), build()?.root());
+    Ok(())
+}
+
+#[test]
 fn test_sha1name_creation() -> anyhow::Result<()> {
     // Create a SHA1Name directly
     let name1 = SHA1Name::new("test-content".to_string())?;

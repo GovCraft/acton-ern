@@ -398,19 +398,49 @@ impl Display for Ern {
     }
 }
 
+/// Composes two ERNs by nesting the right-hand side beneath the left.
+///
+/// The result keeps the left-hand side's domain, category, account, and root, then extends
+/// its path with the right-hand side's root followed by the right-hand side's own parts.
+/// Folding the right-hand root into the path is what makes `parent + child` carry the
+/// child's name; dropping it would discard half the input.
+///
+/// This operation is fallible, so `Output` is a `Result`:
+///
+/// * The right-hand root must form a valid `Part`. A root is at most 63 characters plus a
+///   26-character suffix, which can exceed the 63-character limit on a part.
+/// * The combined path must stay within the 10-part maximum.
+///
+/// # Example
+///
+/// ```
+/// # use acton_ern::prelude::*;
+/// # fn example() -> Result<(), ErnError> {
+/// let parent = Ern::with_root("pool")?;
+/// let child = (parent.clone() + Ern::with_root("worker")?)?;
+///
+/// assert!(child.to_string().contains("worker"));
+/// assert!(child.is_child_of(&parent));
+/// # Ok(())
+/// # }
+/// ```
 impl Add for Ern {
-    type Output = Ern;
+    type Output = Result<Ern, ErnError>;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut new_parts = self.inner.parts.0.clone();
-        new_parts.extend(rhs.inner.parts.0.iter().cloned());
-        Ern::from_inner(ErnInner {
+        let mut new_parts = self.inner.parts.clone();
+        new_parts = new_parts.add_part(Part::new(rhs.inner.root.as_str())?)?;
+        for part in &rhs.inner.parts.0 {
+            new_parts = new_parts.add_part(part.clone())?;
+        }
+
+        Ok(Ern::from_inner(ErnInner {
             domain: self.inner.domain.clone(),
             category: self.inner.category.clone(),
             account: self.inner.account.clone(),
             root: self.inner.root.clone(),
-            parts: Parts(new_parts),
-        })
+            parts: new_parts,
+        }))
     }
 }
 
@@ -569,119 +599,127 @@ mod tests {
         assert_eq!(new_ern.parts(), original_ern.parts());
     }
 
+    /// Builds an ERN with fixed non-root components so `Add` tests differ only in root and parts.
+    fn ern_with(root: &str, parts: &[&str]) -> anyhow::Result<Ern> {
+        Ok(Ern::new(
+            Domain::from_str("acton-internal")?,
+            Category::from_str("hr")?,
+            Account::from_str("company123")?,
+            EntityRoot::from_str(root)?,
+            parts
+                .iter()
+                .map(|p| Part::from_str(p))
+                .collect::<Result<Parts, _>>()?,
+        ))
+    }
+
     #[test]
     fn test_add_erns() -> anyhow::Result<()> {
-        let parent_root = EntityRoot::from_str("root_a")?;
-        let parent: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            parent_root.clone(),
-            Parts(vec![
-                Part::from_str("department_a").unwrap(),
-                Part::from_str("team1").unwrap(),
-            ]),
-        );
+        let parent = ern_with("root_a", &["department_a", "team1"])?;
+        let child = ern_with("root_b", &["role_x"])?;
+        let child_root = child.root().as_str().to_string();
 
-        let child: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("root_b").unwrap(),
-            Parts(vec![Part::from_str("role_x").unwrap()]),
-        );
+        let combined: Ern = (parent.clone() + child)?;
 
-        let combined: Ern = parent + child;
-
-        assert_eq!(*combined.domain(), Domain::from_str("acton-internal").unwrap());
-        assert_eq!(*combined.category(), Category::from_str("hr").unwrap());
-        assert_eq!(*combined.account(), Account::from_str("company123").unwrap());
-        assert_eq!(*combined.root(), parent_root);
+        assert_eq!(combined.domain(), parent.domain());
+        assert_eq!(combined.category(), parent.category());
+        assert_eq!(combined.account(), parent.account());
+        assert_eq!(combined.root(), parent.root());
         assert_eq!(
             *combined.parts(),
             Parts(vec![
-                Part::from_str("department_a").unwrap(),
-                Part::from_str("team1").unwrap(),
-                Part::from_str("role_x").unwrap(),
+                Part::from_str("department_a")?,
+                Part::from_str("team1")?,
+                Part::new(child_root)?,
+                Part::from_str("role_x")?,
             ])
         );
         Ok(())
     }
 
     #[test]
-    fn test_add_erns_empty_child() {
-        let parent: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("rootp").unwrap(),
-            Parts(vec![Part::from_str("department_a").unwrap()]),
-        );
+    fn test_add_erns_preserves_child_name() -> anyhow::Result<()> {
+        // The right-hand root must survive the operation; dropping it discarded half the input.
+        let parent = Ern::with_root("pool")?;
+        let child = (parent.clone() + Ern::with_root("worker")?)?;
 
-        let child: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("rootc").unwrap(),
-            Parts(vec![]),
-        );
-
-        let combined = parent + child;
-
-        assert_eq!(
-            *combined.parts(),
-            Parts(vec![Part::from_str("department_a").unwrap()])
-        );
+        assert!(child.to_string().contains("worker"));
+        assert!(child.is_child_of(&parent));
+        assert_ne!(child, parent);
+        Ok(())
     }
 
     #[test]
-    fn test_add_erns_empty_parent() {
-        let parent: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("rootp").unwrap(),
-            Parts(vec![]),
-        );
-        let child: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("rootc").unwrap(),
-            Parts(vec![Part::from_str("role_x").unwrap()]),
-        );
-        let combined = parent + child;
+    fn test_add_erns_empty_child() -> anyhow::Result<()> {
+        let parent = ern_with("rootp", &["department_a"])?;
+        let child = ern_with("rootc", &[])?;
+        let child_root = child.root().as_str().to_string();
+
+        let combined = (parent + child)?;
+
         assert_eq!(
             *combined.parts(),
-            Parts(vec![Part::from_str("role_x").unwrap()])
+            Parts(vec![
+                Part::from_str("department_a")?,
+                Part::new(child_root)?
+            ])
         );
+        Ok(())
     }
 
     #[test]
-    fn test_add_erns_display() {
-        let parent: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("rootp").unwrap(),
-            Parts(vec![Part::from_str("department_a").unwrap()]),
-        );
+    fn test_add_erns_empty_parent() -> anyhow::Result<()> {
+        let parent = ern_with("rootp", &[])?;
+        let child = ern_with("rootc", &["role_x"])?;
+        let child_root = child.root().as_str().to_string();
 
-        let child: Ern = Ern::new(
-            Domain::from_str("acton-internal").unwrap(),
-            Category::from_str("hr").unwrap(),
-            Account::from_str("company123").unwrap(),
-            EntityRoot::from_str("rootc").unwrap(),
-            Parts(vec![Part::from_str("team1").unwrap()]),
-        );
+        let combined = (parent + child)?;
 
-        let combined = parent + child;
+        assert_eq!(
+            *combined.parts(),
+            Parts(vec![Part::new(child_root)?, Part::from_str("role_x")?])
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_erns_display() -> anyhow::Result<()> {
+        let parent = ern_with("rootp", &["department_a"])?;
+        let child = ern_with("rootc", &["team1"])?;
+
+        let combined = (parent + child)?;
 
         assert!(
             combined
                 .to_string()
                 .starts_with("ern:acton-internal:hr:company123:rootp")
         );
+        assert!(combined.to_string().ends_with("/team1"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_erns_rejects_empty_root() -> anyhow::Result<()> {
+        // A default root carries no name, so there is nothing valid to fold into the path.
+        let parent = ern_with("rootp", &[])?;
+        let result = parent + Ern::default();
+
+        assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_add_erns_rejects_overlong_path() -> anyhow::Result<()> {
+        let parts: Vec<String> = (0..10).map(|i| format!("part{i}")).collect();
+        let parent = ern_with(
+            "rootp",
+            &parts.iter().map(String::as_str).collect::<Vec<_>>(),
+        )?;
+
+        let result = parent + ern_with("rootc", &[])?;
+
+        assert!(result.is_err());
+        Ok(())
     }
     #[test]
     fn test_ern_custom() -> anyhow::Result<()> {

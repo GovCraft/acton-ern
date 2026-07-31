@@ -92,6 +92,38 @@ fn test_v5() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Regression test for https://github.com/govcraft/acton-ern/issues/5.
+///
+/// This is the call sequence `acton-reactive`'s `ActorConfig::new` uses to derive a
+/// supervised child's identity from its parent.
+#[test]
+fn test_ern_round_trip_and_add() -> anyhow::Result<()> {
+    let parent = Ern::with_root("pool")?;
+    let reparsed = ErnParser::new(parent.to_string()).parse()?;
+    assert_eq!(parent, reparsed, "parser should round-trip Display output");
+
+    let child = (parent.clone() + Ern::with_root("worker")?)?;
+    assert!(
+        child.to_string().contains("worker"),
+        "child should carry its own name"
+    );
+    Ok(())
+}
+
+/// Deriving a child from a parent must go through the parent's real root, so the child
+/// is recognizably descended from it rather than from a corrupted copy.
+#[test]
+fn test_derived_child_keeps_parent_identity() -> anyhow::Result<()> {
+    let parent = Ern::with_root("pool")?;
+    let parent_id = ErnParser::new(parent.to_string()).parse()?;
+    let child = (parent_id + Ern::with_root("worker")?)?;
+
+    assert_eq!(child.root(), parent.root());
+    assert!(child.is_child_of(&parent));
+    assert_eq!(child.parent().as_ref(), Some(&parent));
+    Ok(())
+}
+
 #[test]
 fn test_parser() -> anyhow::Result<()> {
     // Create an ErnParser with a specific ERN (Entity Resource Name) string

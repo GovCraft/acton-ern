@@ -71,15 +71,13 @@ mod serde_tests {
 
         // Test JSON serialization
         let json = serde_json::to_string(&root).unwrap();
-        let _deserialized: EntityRoot = serde_json::from_str(&json).unwrap();
-
-        // Since EntityRoot uses MagicTypeId which generates a unique ID each time,
-        // we can't directly compare the serialized and deserialized objects.
-        // Instead, we just verify that serialization and deserialization don't fail.
+        let deserialized: EntityRoot = serde_json::from_str(&json).unwrap();
+        assert_eq!(root, deserialized);
 
         // Test YAML serialization
         let yaml = serde_yaml::to_string(&root).unwrap();
-        let _deserialized: EntityRoot = serde_yaml::from_str(&yaml).unwrap();
+        let deserialized: EntityRoot = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(root, deserialized);
     }
 
     #[test]
@@ -132,15 +130,13 @@ mod serde_tests {
 
         // Test JSON serialization
         let json = serde_json::to_string(&sha1name).unwrap();
-        let _deserialized: SHA1Name = serde_json::from_str(&json).unwrap();
-
-        // Even though SHA1Name should be deterministic based on content,
-        // the current implementation creates a new MagicTypeId during deserialization,
-        // so we just verify that serialization and deserialization don't fail.
+        let deserialized: SHA1Name = serde_json::from_str(&json).unwrap();
+        assert_eq!(sha1name, deserialized);
 
         // Test YAML serialization
         let yaml = serde_yaml::to_string(&sha1name).unwrap();
-        let _deserialized: SHA1Name = serde_yaml::from_str(&yaml).unwrap();
+        let deserialized: SHA1Name = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(sha1name, deserialized);
     }
 
     #[test]
@@ -160,15 +156,15 @@ mod serde_tests {
         let json = serde_json::to_string(&ern).unwrap();
 
         // Test JSON deserialization
-        let _deserialized: Ern = serde_json::from_str(&json).unwrap();
-        // Since Ern contains EntityRoot which has a MagicTypeId,
-        // we can't directly compare the serialized and deserialized objects.
+        let deserialized: Ern = serde_json::from_str(&json).unwrap();
+        assert_eq!(ern, deserialized);
 
         // Test YAML serialization
         let yaml = serde_yaml::to_string(&ern).unwrap();
 
         // Test YAML deserialization
-        let _deserialized: Ern = serde_yaml::from_str(&yaml).unwrap();
+        let deserialized: Ern = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(ern, deserialized);
     }
 
     #[test]
@@ -217,12 +213,13 @@ mod serde_tests {
         // Deserialize from JSON
         let deserialized: Ern = serde_json::from_str(&json).unwrap();
 
-        // We can't compare the original and deserialized ERNs directly due to MagicTypeId,
-        // but we can verify that the domain, category, account, and parts are preserved
+        // Every component survives the round trip, including the root
         assert_eq!(original_ern.domain(), deserialized.domain());
         assert_eq!(original_ern.category(), deserialized.category());
         assert_eq!(original_ern.account(), deserialized.account());
+        assert_eq!(original_ern.root(), deserialized.root());
         assert_eq!(original_ern.parts(), deserialized.parts());
+        assert_eq!(original_ern, deserialized);
     }
 
     #[test]
@@ -244,12 +241,13 @@ mod serde_tests {
         // Deserialize from YAML
         let deserialized: Ern = serde_yaml::from_str(&yaml).unwrap();
 
-        // We can't compare the original and deserialized ERNs directly due to MagicTypeId,
-        // but we can verify that the domain, category, account, and parts are preserved
+        // Every component survives the round trip, including the root
         assert_eq!(original_ern.domain(), deserialized.domain());
         assert_eq!(original_ern.category(), deserialized.category());
         assert_eq!(original_ern.account(), deserialized.account());
+        assert_eq!(original_ern.root(), deserialized.root());
         assert_eq!(original_ern.parts(), deserialized.parts());
+        assert_eq!(original_ern, deserialized);
     }
 
     #[test]

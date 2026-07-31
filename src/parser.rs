@@ -121,6 +121,51 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_round_trips_display_output() -> anyhow::Result<()> {
+        let ern = Ern::with_root("pool")?;
+        let reparsed = ErnParser::new(ern.to_string()).parse()?;
+
+        assert_eq!(ern, reparsed);
+        assert_eq!(ern.to_string(), reparsed.to_string());
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_round_trips_with_parts() -> anyhow::Result<()> {
+        let ern = Ern::with_root("pool")?
+            .add_part("worker")?
+            .add_part("inbox")?;
+        let reparsed = ErnParser::new(ern.to_string()).parse()?;
+
+        assert_eq!(ern, reparsed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_is_idempotent() -> anyhow::Result<()> {
+        // Repeated parses previously grew the prefix and minted a new suffix each time.
+        let expected = Ern::with_root("pool")?.to_string();
+        let mut current = expected.clone();
+
+        for _ in 0..5 {
+            current = ErnParser::new(current).parse()?.to_string();
+            assert_eq!(current, expected);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_mints_root_for_bare_name() -> anyhow::Result<()> {
+        // A bare name is not a formed identifier, so it still receives a fresh suffix.
+        let ern =
+            ErnParser::new("ern:custom:service:account123:root/resource".to_string()).parse()?;
+
+        assert!(ern.root().as_str().starts_with("root_"));
+        assert_ne!(ern.root().as_str(), "root");
+        Ok(())
+    }
+
+    #[test]
     fn test_ern_parsing_with_owned_string() {
         let ern_str = String::from("ern:custom:service:account123:root/resource");
         let parser: ErnParser = ErnParser::new(ern_str);

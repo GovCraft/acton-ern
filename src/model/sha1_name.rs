@@ -9,6 +9,18 @@ use crate::errors::ErnError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Interprets `value` as a content-addressable identifier.
+///
+/// A value that is already a fully-formed `MagicTypeId` is preserved verbatim; anything
+/// else is treated as content and hashed into a deterministic v5 identifier. Preserving
+/// formed identifiers keeps parsing and deserialization idempotent, the same way it does
+/// for `EntityRoot`.
+fn preserve_or_hash(value: &str) -> MagicTypeId {
+    value
+        .parse::<MagicTypeId>()
+        .unwrap_or_else(|_| value.create_type_id::<V5>())
+}
+
 /// Represents a content-addressable identifier in an Entity Resource Name (ERN).
 ///
 /// `SHA1Name` uses the UUID v5 algorithm (based on SHA1 hash) to generate
@@ -124,7 +136,7 @@ impl SHA1Name {
         }
 
         Ok(SHA1Name {
-            name: value.create_type_id::<V5>(),
+            name: preserve_or_hash(&value),
         })
     }
 }
@@ -190,7 +202,7 @@ impl std::str::FromStr for SHA1Name {
         }
 
         Ok(SHA1Name {
-            name: s.create_type_id::<V5>(),
+            name: preserve_or_hash(s),
         })
     }
 }
@@ -218,14 +230,26 @@ impl<'de> Deserialize<'de> for SHA1Name {
     }
 }
 
-use crate::Part;
 use crate::traits::ErnComponent;
+use crate::{EntityRoot, Part};
 
 impl ErnComponent for SHA1Name {
     fn prefix() -> &'static str {
         ""
     }
     type NextState = Part;
+
+    /// Contributes a deterministic, content-addressable root.
+    ///
+    /// The v5 identifier is handed to `EntityRoot` already formed, so the builder stores it
+    /// verbatim rather than reissuing it as a time-ordered v7 identifier.
+    fn build_root(value: &str) -> Option<Result<EntityRoot, ErnError>> {
+        Some(
+            value
+                .parse::<SHA1Name>()
+                .map(|name| EntityRoot::from(name.name)),
+        )
+    }
 }
 
 #[cfg(test)]
