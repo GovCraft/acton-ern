@@ -58,7 +58,7 @@ Add Acton ERN to your project:
 
 ```toml
 [dependencies]
-acton-ern = "1.0.0"
+acton-ern = "3.0.0"
 ```
 
 ### Creating an ERN
@@ -128,7 +128,7 @@ Acton ERN includes optional features:
 
 ```toml
 [dependencies]
-acton-ern = { version = "1.0.0", features = ["serde", "async"] }
+acton-ern = { version = "3.0.0", features = ["serde"] }
 ```
 
 - **serde**: Add serialization/deserialization support for JSON, YAML, and more

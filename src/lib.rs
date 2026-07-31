@@ -47,7 +47,7 @@
 //!
 //! ```rust,ignore
 //! // Enable the serde feature in Cargo.toml:
-//! // acton-ern = { version = "1.0.0", features = ["serde"] }
+//! // acton-ern = { version = "3.0.0", features = ["serde"] }
 //!
 //! use acton_ern::prelude::*;
 //! use serde_json;
