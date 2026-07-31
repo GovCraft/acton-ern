@@ -124,6 +124,66 @@ fn test_derived_child_keeps_parent_identity() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The name accessor is what makes a supervision-style child identity deterministic:
+/// derive from the parent's ERN plus the child's *name*, never the child's minted root.
+#[test]
+fn test_deterministic_child_by_name() -> anyhow::Result<()> {
+    let parent = Ern::with_root("pool")?;
+
+    // Two independently minted "worker" ERNs differ, but share a name
+    let a = Ern::with_root("worker")?;
+    let b = Ern::with_root("worker")?;
+    assert_ne!(a, b);
+    assert_eq!(a.name(), "worker");
+    assert_eq!(a.name(), b.name());
+
+    // Deriving by name is stable across both of them
+    let child_a = parent.add_part(a.name())?;
+    let child_b = parent.add_part(b.name())?;
+    assert_eq!(child_a, child_b);
+    assert!(child_a.is_child_of(&parent));
+    assert!(child_a.to_string().ends_with("/worker"));
+
+    // Folding the whole root is not stable, which is why Add is the wrong tool here
+    assert_ne!((parent.clone() + a)?, (parent + b)?);
+    Ok(())
+}
+
+#[test]
+fn test_name_is_empty_for_default_root() {
+    assert_eq!(Ern::default().name(), "");
+}
+
+#[test]
+fn test_add_part_with_limit_allows_deep_hierarchies() -> anyhow::Result<()> {
+    let mut ern = Ern::with_root("supervisor")?;
+
+    // The default bound stops at DEFAULT_MAX_PARTS
+    for i in 0..DEFAULT_MAX_PARTS {
+        ern = ern.add_part(format!("level{i}"))?;
+    }
+    assert!(ern.add_part("one_too_many").is_err());
+
+    // A caller-chosen bound carries on from there
+    for i in DEFAULT_MAX_PARTS..32 {
+        ern = ern.add_part_with_limit(format!("level{i}"), 64)?;
+    }
+    assert_eq!(ern.parts().len(), 32);
+
+    // And the deeper ERN still round-trips, since parsing imposes no depth limit
+    assert_eq!(ErnParser::new(ern.to_string()).parse()?, ern);
+    Ok(())
+}
+
+#[test]
+fn test_add_part_with_limit_still_bounds() -> anyhow::Result<()> {
+    let ern = Ern::with_root("supervisor")?.add_part("a")?;
+
+    let err = ern.add_part_with_limit("b", 1).unwrap_err();
+    assert!(err.to_string().contains("cannot exceed maximum of 1 parts"));
+    Ok(())
+}
+
 #[test]
 fn test_parser() -> anyhow::Result<()> {
     // Create an ErnParser with a specific ERN (Entity Resource Name) string

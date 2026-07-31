@@ -6,6 +6,7 @@ use std::ops::Add;
 use std::sync::Arc;
 
 use crate::errors::ErnError;
+use crate::model::parts::DEFAULT_MAX_PARTS;
 use crate::{Account, Category, Domain, EntityRoot, ErnComponent, Part, Parts};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -112,6 +113,34 @@ impl Ern {
     /// Returns a reference to the parts component.
     pub fn parts(&self) -> &Parts {
         &self.inner.parts
+    }
+
+    /// Returns the root's human-readable name, without the generated suffix.
+    ///
+    /// This is the name the ERN was created from (`worker`), not the full root identifier
+    /// (`worker_01h455vb4pex…`). Because the name is stable across roots minted from the
+    /// same input, it is what you derive a deterministic child path from.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use acton_ern::prelude::*;
+    /// # fn example() -> Result<(), ErnError> {
+    /// let parent = Ern::with_root("pool")?;
+    /// let requested = Ern::with_root("worker")?;
+    ///
+    /// assert_eq!(requested.name(), "worker");
+    ///
+    /// // Deriving by name is deterministic; folding the whole root is not
+    /// assert_eq!(
+    ///     parent.add_part(requested.name())?,
+    ///     parent.add_part(requested.name())?
+    /// );
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn name(&self) -> &str {
+        self.inner.root.name_str()
     }
 
     /// Creates a new ERN with the given root and default values for other components.
@@ -227,7 +256,8 @@ impl Ern {
     /// # Returns
     ///
     /// * `Ok(Ern)` - A new ERN with the added part
-    /// * `Err(ErnError)` - If the part value is invalid or adding it would exceed the maximum of 10 parts
+    /// * `Err(ErnError)` - If the part value is invalid, or the path already holds
+    ///   [`DEFAULT_MAX_PARTS`] parts
     ///
     /// # Example
     ///
@@ -241,18 +271,53 @@ impl Ern {
     /// # }
     /// ```
     pub fn add_part(&self, part: impl Into<String>) -> Result<Self, ErnError> {
-        let new_part = Part::new(part)?;
-        let mut new_parts = self.inner.parts.clone();
+        self.add_part_with_limit(part, DEFAULT_MAX_PARTS)
+    }
 
-        // Check if adding another part would exceed the maximum
-        if new_parts.0.len() >= 10 {
-            return Err(ErnError::ParseFailure(
-                "Parts",
-                "cannot exceed maximum of 10 parts".to_string(),
-            ));
-        }
+    /// Adds a new part to the ERN's path, bounded by a caller-chosen maximum.
+    ///
+    /// Identical to [`add_part`](Self::add_part) except that the path depth limit is yours to
+    /// pick rather than [`DEFAULT_MAX_PARTS`]. Deep hierarchies - a supervision tree nesting
+    /// past ten levels, for instance - need this.
+    ///
+    /// # Arguments
+    ///
+    /// * `part` - The string value for the new part
+    /// * `max_parts` - The maximum number of parts the resulting path may hold
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Ern)` - A new ERN with the added part
+    /// * `Err(ErnError)` - If the part value is invalid, or the path already holds
+    ///   `max_parts` parts
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use acton_ern::prelude::*;
+    /// # fn example() -> Result<(), ErnError> {
+    /// let mut ern = Ern::with_root("supervisor")?;
+    /// for i in 0..20 {
+    ///     ern = ern.add_part_with_limit(format!("level{i}"), 64)?;
+    /// }
+    /// assert_eq!(ern.parts().len(), 20);
+    ///
+    /// // The result still parses back, because parsing imposes no depth limit
+    /// assert_eq!(ErnParser::new(ern.to_string()).parse()?, ern);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_part_with_limit(
+        &self,
+        part: impl Into<String>,
+        max_parts: usize,
+    ) -> Result<Self, ErnError> {
+        let new_parts = self
+            .inner
+            .parts
+            .clone()
+            .add_part_with_limit(Part::new(part)?, max_parts)?;
 
-        new_parts.0.push(new_part);
         Ok(Ern::from_inner(ErnInner {
             domain: self.inner.domain.clone(),
             category: self.inner.category.clone(),

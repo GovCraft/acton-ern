@@ -89,6 +89,45 @@ impl EntityRoot {
         &self.name
     }
 
+    /// Returns the human-readable name of this root, without the generated suffix.
+    ///
+    /// Where [`as_str`](Self::as_str) yields the full identifier (`worker_01h455vb4pex…`),
+    /// this yields just the name it was created from (`worker`). That name is stable across
+    /// roots minted from the same input, which makes it the right value to derive a
+    /// deterministic child path from:
+    ///
+    /// ```
+    /// # use acton_ern::prelude::*;
+    /// # fn example() -> Result<(), ErnError> {
+    /// let parent = Ern::with_root("pool")?;
+    /// let requested = Ern::with_root("worker")?;
+    ///
+    /// // Same child every time, regardless of when `requested` was minted
+    /// let child = parent.add_part(requested.name())?;
+    /// assert_eq!(child, parent.add_part(requested.name())?);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Returns an empty string for a root that carries no prefix, such as one built from a
+    /// bare suffix or [`EntityRoot::default`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use acton_ern::prelude::*;
+    /// # fn example() -> Result<(), ErnError> {
+    /// let root = EntityRoot::new("profile".to_string())?;
+    ///
+    /// assert_eq!(root.name_str(), "profile");
+    /// assert!(root.as_str().starts_with("profile_"));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn name_str(&self) -> &str {
+        self.name.prefix().as_str()
+    }
+
     /// Creates a new `EntityRoot` with the given value.
     ///
     /// When `value` is a bare name, this method generates a time-ordered, unique identifier

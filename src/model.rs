@@ -3,7 +3,7 @@ pub use category::Category;
 pub use domain::Domain;
 pub use ern::Ern;
 pub use part::Part;
-pub use parts::Parts;
+pub use parts::{DEFAULT_MAX_PARTS, Parts};
 pub use root::EntityRoot;
 pub use sha1_name::SHA1Name;
 

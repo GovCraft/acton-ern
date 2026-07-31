@@ -9,39 +9,79 @@ use crate::errors::ErnError;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+/// The default maximum number of parts in an ERN path.
+///
+/// This bounds incremental construction only. [`Parts::new`] and [`ErnParser`] accept a path
+/// of any length, so raising the bound with [`Parts::add_part_with_limit`] never produces an
+/// ERN that fails to parse back.
+///
+/// Callers that nest deeper than this - a supervision tree, for instance - should use
+/// [`Parts::add_part_with_limit`] or [`Ern::add_part_with_limit`] and choose their own bound.
+///
+/// [`ErnParser`]: crate::ErnParser
+/// [`Ern::add_part_with_limit`]: crate::Ern::add_part_with_limit
+pub const DEFAULT_MAX_PARTS: usize = 10;
+
 /// Represents a collection of parts in the ERN (Entity Resource Name), handling multiple segments.
 #[derive(new, Debug, PartialEq, Clone, Eq, Default, PartialOrd)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Parts(pub(crate) Vec<Part>);
 
 impl Parts {
-    /// Adds a part to the collection.
+    /// Adds a part to the collection, bounded by [`DEFAULT_MAX_PARTS`].
     ///
     /// # Arguments
     ///
     /// * `part` - The `Part` to be added to the collection.
-    ///   Adds a part to the collection with validation.
-    ///
-    /// # Arguments
-    ///
-    /// * `part` - The `Part` to be added to the collection.
-    ///
-    /// # Validation Rules
-    ///
-    /// * Maximum of 10 parts allowed in a single Parts collection
     ///
     /// # Returns
     ///
-    /// * `Result<Parts, ErnError>` - The updated Parts collection or an error
-    pub fn add_part<T>(mut self, part: T) -> Result<Self, ErnError>
+    /// * `Result<Parts, ErnError>` - The updated Parts collection, or an error if the
+    ///   collection already holds [`DEFAULT_MAX_PARTS`] parts.
+    pub fn add_part<T>(self, part: T) -> Result<Self, ErnError>
+    where
+        T: Into<Part>,
+    {
+        self.add_part_with_limit(part, DEFAULT_MAX_PARTS)
+    }
+
+    /// Adds a part to the collection, bounded by a caller-chosen maximum.
+    ///
+    /// Use this when [`DEFAULT_MAX_PARTS`] is the wrong bound for your domain - deep
+    /// supervision hierarchies being the motivating case.
+    ///
+    /// # Arguments
+    ///
+    /// * `part` - The `Part` to be added to the collection.
+    /// * `max_parts` - The maximum number of parts this collection may hold.
+    ///
+    /// # Returns
+    ///
+    /// * `Result<Parts, ErnError>` - The updated Parts collection, or an error if the
+    ///   collection already holds `max_parts` parts.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use acton_ern::prelude::*;
+    /// # fn example() -> Result<(), ErnError> {
+    /// let mut parts = Parts::default();
+    /// for i in 0..32 {
+    ///     parts = parts.add_part_with_limit(Part::new(format!("level{i}"))?, 64)?;
+    /// }
+    /// assert_eq!(parts.len(), 32);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn add_part_with_limit<T>(mut self, part: T, max_parts: usize) -> Result<Self, ErnError>
     where
         T: Into<Part>,
     {
         // Check if adding another part would exceed the maximum
-        if self.0.len() >= 10 {
+        if self.0.len() >= max_parts {
             return Err(ErnError::ParseFailure(
                 "Parts",
-                "cannot exceed maximum of 10 parts".to_string(),
+                format!("cannot exceed maximum of {max_parts} parts"),
             ));
         }
 

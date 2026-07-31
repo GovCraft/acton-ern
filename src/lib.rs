@@ -47,7 +47,7 @@
 //!
 //! ```rust,ignore
 //! // Enable the serde feature in Cargo.toml:
-//! // acton-ern = { version = "3.0.0", features = ["serde"] }
+//! // acton-ern = { version = "3.1.0", features = ["serde"] }
 //!
 //! use acton_ern::prelude::*;
 //! use serde_json;
@@ -93,7 +93,9 @@ pub mod prelude {
 
     pub use super::builder::ErnBuilder;
     pub use super::errors::ErnError;
-    pub use super::model::{Account, Category, Domain, EntityRoot, Ern, Part, Parts, SHA1Name};
+    pub use super::model::{
+        Account, Category, DEFAULT_MAX_PARTS, Domain, EntityRoot, Ern, Part, Parts, SHA1Name,
+    };
     pub use super::parser::ErnParser;
     pub use super::traits::*;
 }
